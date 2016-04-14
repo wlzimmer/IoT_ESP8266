@@ -43,7 +43,7 @@ unsigned int localPort = 12345;      // local port to listen for UDP packets
 char packetBuffer[512]; //buffer to hold incoming and outgoing packets
 byte broadcastIP[] = {255,255,255,255};
 void debug (String);
-ValueTable formats, rules, ipTable;
+ValueTable scripts, rules, ipTable;
 Properties properties;
 int version;
 
@@ -172,6 +172,7 @@ void ValueTable::updateProperty (char* name, String value, int size) {
 void ValueTable::updateProperty (char* name, char* value, int size) {
   int propIdx = findProperty (name);
   if (size == -1) size = strlen(value) +1;
+  if (size<32) size= 32;
   if (propIdx == -1) propIdx = declareProperty (name, size);
 debug (String("updateProperty=")+ name + ", value=" + value + ", size=" + size + ",  changed=" + valueTable[propIdx]->changed);
   if (strcmp(valueTable[propIdx]->value, value) !=0) valueTable[propIdx]->changed = true;
@@ -244,17 +245,19 @@ void writeUDP (IPAddress ip, String value) {// byte*
 debug (String("*...SendUDP=") +err+ ", " + value + ", " +ip);
 }
 
-void ruleAction () { // Set,name,value  Send,serial,name
+void ruleAction () { // Set,name,value  Send,serial,name, read,serial,name
   char* action = (strtok(NULL, ","));
-debug (String("ruleAction = ") + action);
+//debug (String("ruleAction = ") + action);
   if (strcmp(action, "Set")==0) {
     properties.updateProperty (strtok(NULL, ","), strtok(NULL, ","));
   } if (strcmp(action, "Send")==0) {
     IPAddress ipAddr = (byte*) ipTable.getValue(strtok(NULL, ","));
-Serial.print ("ipAddr="); Serial.println(ipAddr);
-Serial.flush();
     char* name = strtok(NULL, ",");
     writeUDP (ipAddr, String("Write") + US + name +US+ properties.getValue(name) +US);
+  } if (strcmp(action, "Read")==0) {
+    IPAddress ipAddr = (byte*) ipTable.getValue(strtok(NULL, ","));
+    char* name = strtok(NULL, ",");
+    writeUDP (ipAddr, String("Read") + US + name +US);
   }
 }
 
@@ -275,21 +278,27 @@ boolean lessTrigger () {
   return( atoi(properties.getValue(name)) < value);
 }
 
+boolean intervalTrigger() {
+  char* name = strtok(NULL, ",");
+  int start  = atoi( strtok(NULL, ","));
+  int seconds = atoi( strtok(NULL, ","));
+  return (start%seconds == 0);
+}
 void runRules () {
-//Serial.print(".");
   char rule[256];
   for (int ruleIdx=0; ruleIdx<rules.numProperties; ruleIdx++) {
     char* ruleBuf = rules.valueTable[ruleIdx]->value;
     strcpy (rule, ruleBuf);
 //debug(String("runRule=")+rule + ", num=" + rules.numProperties);
-//Serial.print("runrule=");Serial.println(rule);Serial.flush();
     char* trigger = (strtok(rule, ","));
     if (strcmp(trigger, "Change")==0) {  //Change,name,delta,send,serial,name
-      if (changeTrigger()) {debug(String("runRule=")+rule + ", num=" + rules.numProperties);ruleAction();}
+      if (changeTrigger()) ruleAction();
     } else if (strcmp(trigger, "Less")==0) {
       if (lessTrigger()) ruleAction();
     } else if (strcmp(trigger, "Greater")==0) {
       if (greaterTrigger()) ruleAction();
+    } else if (strcmp(trigger, "Interval")==0) { //Interval, <now>, seconds, name, 
+      if (intervalTrigger()) ruleAction();
     }
   }
 }
@@ -310,31 +319,31 @@ debug(String("*...ReceiveUDP=") + packetBuffer+", IP=" + (IPAddress) Udp.remoteI
       writeUDP (broadcastIP, String("Update") + US + String(system_get_chip_id()) +US+properties.getValue("Name") +US+ version +US);
 
     } else if (strcmp(command, "Update")==0) {
-//      char remoteIP[16];
       char* serial =  (strtok(NULL, US));
-//      Udp.remoteIP().toString().toCharArray(remoteIP,16);
       ipTable.updateProperty (serial, (char*) &Udp.remoteIP()[0], 4);
 
     } else if (strcmp(command, "Write")==0) {
-      properties.updateProperty (strtok(NULL, US), strtok(NULL, US));
+      char* name = strtok(NULL, US);
+      properties.updateProperty (name, strtok(NULL, US));
+      writeUDP (Udp.remoteIP(), String("Ack") + US + name + US);
 
     } else if (strcmp(command, "Read")==0) {
       char* name = strtok(NULL, US);
       writeUDP (Udp.remoteIP(), String("Write") + US + name + US + properties.getValue(name)+US);
 
     } else if (strcmp(command, "Formats")==0) {
-      for (int propIdx=0; propIdx<formats.numProperties; propIdx++) {
-        writeUDP (Udp.remoteIP(), String("Format") + US + formats.valueTable[propIdx]->name + US + formats.valueTable[propIdx]->value+US);
+      writeUDP (Udp.remoteIP(), String("Write") + US + "HTML" + US + properties.getValue("HTML")+US);
+      for (int propIdx=0; propIdx<scripts.numProperties; propIdx++) {
+        writeUDP (Udp.remoteIP(), String("Script") + US + scripts.valueTable[propIdx]->name + US + scripts.valueTable[propIdx]->value+US);
       }  
     } else if (strcmp(command, "Subscribe")==0) { //Subscribe, name, delta
       char* name = strtok(NULL, US);
-      char* delta = ( strtok(NULL, US));
-      //Change,name,delta,send,serial,name
+//      char* delta = ( strtok(NULL, US));
       char* serial = ipTable.getFromIP((char*) &Udp.remoteIP()[0]);
       char* ruleName = (char*) malloc(strlen(name)+25);
       snprintf(ruleName, strlen(name)+25, "%s%s", serial, name);
       rules.updateProperty (ruleName, String("Change,") + name + ",Send," + serial + "," + name);
-debug (String("Rule=") + ruleName + "--"+ rules.getValue(ruleName));
+//debug (String("Rule=") + ruleName + "--"+ rules.getValue(ruleName));
     }
     while ((command = strtok(NULL, " ")) != NULL);
   }

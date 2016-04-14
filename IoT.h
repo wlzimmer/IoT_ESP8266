@@ -30,12 +30,12 @@ int ePromWrite (char* , int , int );
 char* ePromRead();
 void nuEpromField (char* , int );
 int nuEpromProperty (char* , char* , int );
-int declareProperty (char* , int  =32, int  = -1);;
+int declareProperty (char* , int  =-1, int  = -1);;
 void loadEprom ();
 void updateProperty (char* , String , int =-1);
 void updateProperty (char* , char* , int =-1);
-int initializePersistent (char* , char* , int  =32);
-int declarePersistent (char* , int  =32);
+int initializePersistent (char* , char* , int  =-1);
+int declarePersistent (char* , int  =-1);
 char* getValue (char* );
 char* getValue (int );
 char* getFromIP (char* ip);
@@ -44,11 +44,11 @@ boolean changed (char* );
 
 class Properties : public ValueTable {
   public:
-  void updateProperty (char* , char* , int  =32);
+  void updateProperty (char* , char* , int  =-1);
   void doAction (char* , char* );
 };
 
-extern ValueTable formats, rules, ipTable;
+extern ValueTable scripts, rules, ipTable;
 extern Properties properties;
 extern int LED;
 
